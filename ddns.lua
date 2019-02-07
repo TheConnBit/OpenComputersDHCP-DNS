@@ -20,36 +20,50 @@ local function fdelimiter(s, delimiter)
   end
 end
 
-local function Trans(data)
+local function trans(data)
   con:write(data..'\n')
   con:flush()
 end
 
-local function Recv()
+local function recv(timeout)
+  if timeout ~= nil then
+    con:setTimeout(timeout)
+  else
+    con:setTimeout(5)
+  end
   local s = con:read()
   con:flush()
   return s
 end
 
-local function Ping()
-  Trans('ping#')
+local function ping()
+  trans('ping#')
+  data = recv(1)
+  if data ~= "pong" then
+    Close("Server not response")
+  end
 end
 
-function ddns.Connect(ip, port)
+function ddns.connect(ip, port)
   con = net.open(ip, port)
   if con then
-    timerid = event.timer(30, Ping, math.huge)
+    timerid = event.timer(30, ping, math.huge)
     return true
   else
     print('Connection failed...')
+    con = nil
     return false
   end
 end
 
-function ddns.Close()
+function ddns.close(reason)
   if con then
-    print('Close connection...')
-    Trans('exit#')
+    if reason ~= nil then
+      print('Closing connection... Reason: '..reason)
+    else 
+      print('Closing connection...')
+    end
+    trans('exit#')
     event.cancel(timerid)
     con:close()
     return true
@@ -59,25 +73,25 @@ function ddns.Close()
   end
 end
 
-function ddns.Register(hwaddress)
+function ddns.register(hwaddress)
   if con then
-    Trans("registerFF"..hwaddress)
-    print('Register to net...')	
-    local s = Recv()
+    trans("registerFF"..hwaddress)
+    print('Getting the ip...')	
+    local s = recv()
     if s == nil then
       print('Response a nil value...')
-      Close()
+      close("Response a nil value")
       return false
     elseif s == "failed" then
       print('Register failed...')
-      Close()
+      close("Register failed")
       return false
     elseif s == "isused" then
     	print('This MAC Address already registred...')
-      Close()
+      close("This MAC Address already registred")
       return false
     else
-      print('Register succesful! You IP: '..s)
+      print('Registration successful! Your IP: '..s)
       return s
     end
   else
@@ -86,9 +100,9 @@ function ddns.Register(hwaddress)
   end
 end
 
-function ddns.Send(IP, data)
+function ddns.send(IP, port, data)
   if con then
-    Trans("sendFF"..IP.."FF"..data)
+    trans("sendFF"..IP.."FF"..port.."FF"..data)
     return true
   else
     print('Please connect to server!')
@@ -96,23 +110,21 @@ function ddns.Send(IP, data)
   end
 end
 
-function ddns.getMessages()
+function ddns.getMessages(port)
   if con then
-    Trans("getbuffer#")
-    data = Recv()
+    trans("getbuffer#FF"..port)
+    data = recv()
     local messages = {}
     if fdelimiter(data, "DD") then
       nsdata = split(data, "DD")
       for k in pairs(nsdata) do
         sdata = split(k, "FF")
-        print(sdata[1].." "..sdata[2])
         if sdata[1] ~= nil and sdata[2] ~= nil then
           messages[sdata[1]] = sdata[2]
         end
       end
     else
       sdata = split(data, "FF")
-      print(sdata[1].." "..sdata[2])
       if sdata[1] ~= nil and sdata[2] ~= nil then
         messages[sdata[1]] = sdata[2]
       end
@@ -125,69 +137,87 @@ function ddns.getMessages()
   end
 end
 
-function ddns.RegisterDomain(domain)
-  Trans("registerdomainFF"..domain)
-  local data = Recv()
-  if data == "OK" then
-    print("Domain created")
-    return true
-  elseif data == "0" then
-    print("Unknown error")
-    return false
-  elseif data == "1" then
-    print("Incorrect domain name")
-    return false
-  elseif data == "2" then
-    print("Domain already created")
-    return false
-  elseif data == "3" then
-    print("Error create domain file")
-    return false
+function ddns.registerdomain(domain)
+  if con then
+    trans("registerdomainFF"..domain)
+    local data = recv()
+    if data == "OK" then
+      print("Domain created")
+      return true
+    elseif data == "0" then
+      print("Unknown error")
+      return false
+    elseif data == "1" then
+      print("Incorrect domain name")
+      return false
+    elseif data == "2" then
+      print("Domain already created")
+      return false
+    elseif data == "3" then
+      print("Error create domain file")
+      return false
+    else
+      print("Other error")
+      return false
+    end
   else
-    print("Other error")
+    print('Please connect to server!')
     return false
   end
 end
 
-function ddns.UnRegisterDomain(domain)
-  Trans("unregisterdomainFF"..domain)
-  local data = Recv()
-  if data == "OK" then
-    print("Domain deleted")
-    return true
-  elseif data == "0" then
-    print("Unknown error")
-    return false
-  elseif data == "1" then
-    print("Incorrect domain name")
-    return false
-  elseif data == "2" then
-    print("Domain not already created")
-    return false
-  elseif data == "4" then
-    print("Access error to domain file")
-    return false
+function ddns.unregisterdomain(domain)
+  if con then
+    trans("unregisterdomainFF"..domain)
+    local data = recv()
+    if data == "OK" then
+      print("Domain deleted")
+      return true
+    elseif data == "0" then
+      print("Unknown error")
+      return false
+    elseif data == "1" then
+      print("Incorrect domain name")
+      return false
+    elseif data == "2" then
+      print("Domain not already created")
+      return false
+    elseif data == "4" then
+      print("Access error to domain file")
+      return false
+    else
+      print("Other error")
+      return false
+    end
   else
-    print("Other error")
+    print('Please connect to server!')
     return false
   end
 end
 
-function ddns.Reslove(domain)
-  Trans("resloveFF"..domain)
-  local data = Recv()
-  if data == "0" then
-    print("Unknown error")
-    return false
-  elseif data == "1" then
-    print("Incorrect domain name")
-    return false
-  elseif data == "2" then
-    print("Domain not already created")
-    return false
+function ddns.resolve(domain)
+  if con then
+    trans("resloveFF"..domain)
+    local data = recv()
+    if data == "0" then
+      print("Unknown error")
+      return false
+    elseif data == "1" then
+      print("Incorrect domain name")
+      return false
+    elseif data == "2" then
+      print("Domain not already created")
+      return false
+    elseif data == "5" then
+      print("Server bound to the domain is disabled")
+      return false
+    else
+      print("DNS server returned the address: "..data)
+      return data
+    end
   else
-    print("Resloved domain address: "..data)
-    return data
+    print('Please connect to server!')
+    return false
   end
 end
 

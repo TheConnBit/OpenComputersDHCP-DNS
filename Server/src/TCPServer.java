@@ -1,5 +1,6 @@
 import java.io.*;
 import java.net.*;
+import java.util.HashMap;
 import java.util.Properties;
 import java.util.Timer;
 import java.util.TimerTask;
@@ -7,10 +8,13 @@ import java.util.TimerTask;
 class Data {
 	public int MapSize;
 	public String[][] IPMap;
+	public HashMap<String, String[]> PortMap;
 	public String[] domains = new String[] {"ru", "net", "server"};
-	Data() {
+	Data(String[] domainlist) {
 		MapSize = 8192;
-		IPMap = new String[MapSize][3];
+		IPMap = new String[MapSize][2];
+		PortMap = new HashMap<String, String[]>(); 
+		domains = domainlist;
 	}
 }
 
@@ -22,13 +26,13 @@ class Client extends Thread {
 	static Data Map;
 	Timer timer;
     boolean connected = true;
-    boolean ping = false;
+    boolean ping = true;
     static String dnsfolder = new File(".").getAbsolutePath()+"\\dns";
     Client(Socket connectionSocket, Data data){
         ClientConn = connectionSocket;
         Map = data;
         timer = new Timer();
-        timer.schedule(check, 30000, 30000);
+        timer.schedule(check, 35000, 35000);
     }
      
     TimerTask check = new TimerTask() {
@@ -69,6 +73,10 @@ class Client extends Thread {
 					}
 				}
 	    		System.out.println("[INFO] [DHCP] Client ID: " + IDClient + " issued IP: " + IPClient);
+	    		Map.PortMap.put(IDClient, new String[255]);
+	    		for (int i = 0; i < 255; i++) {
+	    			Map.PortMap.get(IDClient)[i] = "#";
+	    		}
 	    	}
 	    }
 	    while (connected) {
@@ -79,7 +87,7 @@ class Client extends Thread {
 					}
 					if (data.equals("ping#")) {
 						ping = true;
-						//Trans(ClientConn, "pong");
+						Trans(ClientConn, "pong");
 					}
 					String[] Sdata = data.split("FF");
 					if (Sdata[0].equals("registerdomain")) {
@@ -100,22 +108,23 @@ class Client extends Thread {
 					}
 					if (Sdata[0].equals("reslove")) {
 						if (Sdata.length == 2) {
-							String response = Reslove(Sdata[1]);
+							String response = Resolve(Sdata[1]);
 							Trans(ClientConn, response);
 						} else {
 							Trans(ClientConn, "0");
 						}
 					}
 					if (Sdata[0].equals("send")) {
-						if (Sdata.length == 3) {
-							Send(IPClient, Sdata[1], Sdata[2]);
+						if (Sdata.length == 4) {
+							Send(IPClient, Sdata[1], Integer.parseInt(Sdata[2]), Sdata[3]);
+							System.out.println("[INFO] [RET] Data ("+Sdata[3]+") received from IP "+IPClient+" to IP "+Sdata[1]+" is written to the buffer port "+Sdata[2]);
 						}
 					}
 					if (Sdata[0].equals("getbuffer#")) {
-						if (!Map.IPMap[ID][2].equals("#")) {
-							System.out.println("[INFO] [RET] Data: " + Map.IPMap[ID][2] +" send to "+ IPClient);
-							Trans(ClientConn, Map.IPMap[ID][2]);
-							Map.IPMap[ID][2] = "#";
+						if (!Map.PortMap.get(IDClient)[Integer.parseInt(Sdata[1])].equals("#")) { //The data from the buffer port 234 has been requested by the recipient
+							System.out.println("[INFO] [RET] The data ("+Map.PortMap.get(IDClient)[Integer.parseInt(Sdata[1])]+") from the buffer port "+Integer.parseInt(Sdata[1])+" has been requested by the recipient IP "+IPClient);
+							Trans(ClientConn, Map.PortMap.get(IDClient)[Integer.parseInt(Sdata[1])]);
+							Map.PortMap.get(IDClient)[Integer.parseInt(Sdata[1])] = "#";
 						} else {
 							Trans(ClientConn, "empity");
 						}
@@ -131,7 +140,7 @@ class Client extends Thread {
 	    try {
 			ClientConn.close();
 		} catch (IOException e) {
-			e.printStackTrace();
+			//e.printStackTrace();
 		}
 	    ClientUnRegister(IDClient);
 	    timer.cancel();
@@ -144,7 +153,7 @@ class Client extends Thread {
 			BufferedReader reader = new BufferedReader(new InputStreamReader(Conn.getInputStream()));
 			data = reader.readLine();
 		} catch (IOException e) {
-			e.printStackTrace();
+			//e.printStackTrace();
 		}
 		return data;
 	}
@@ -160,7 +169,7 @@ class Client extends Thread {
 				data = null;
 			}
 		} catch (IOException e) {
-			e.printStackTrace();
+			//e.printStackTrace();
 		}
 		return data;
 	}
@@ -170,7 +179,7 @@ class Client extends Thread {
 			DataOutputStream writer = new DataOutputStream(Conn.getOutputStream());
 			writer.writeBytes(data + "\n");
 		} catch (IOException e) {
-			e.printStackTrace();
+			//e.printStackTrace();
 		}
 	}
 	
@@ -197,20 +206,19 @@ class Client extends Thread {
     	for (int i = 0; i < Map.MapSize; i++) {
     		if (Map.IPMap[i][1].equals(ID)) {
     			Map.IPMap[i][1] = "#";
-    			Map.IPMap[i][2] = "#";
     			break;
     		}
     	}
     }
     
-    public static void Send(String SenderIP, String IP, String data) {
+    public static void Send(String SenderIP, String IP, int port, String data) {
 		for (int i = 0; i < Map.MapSize; i++) {
 			if (Map.IPMap[i][0].equals(IP)) {
-				if (Map.IPMap[i][2].equals("#")) {
-					Map.IPMap[i][2] = SenderIP + "FF" + data;
+				if (Map.PortMap.get(Map.IPMap[i][1])[port].equals("#")) {
+					Map.PortMap.get(Map.IPMap[i][1])[port] = SenderIP + "FF" + data;
 					break;
 				} else {
-					Map.IPMap[i][2] = Map.IPMap[i][2] + "DD" + SenderIP + "FF" + data;
+					Map.PortMap.get(Map.IPMap[i][1])[port] = Map.PortMap.get(Map.IPMap[i][1])[port] + "DD" + SenderIP + "FF" + data;
 					break;
 				}
 			}
@@ -244,7 +252,7 @@ class Client extends Thread {
 							return "3";
 						}
 					} catch (IOException e) {
-						e.printStackTrace();
+						//e.printStackTrace();
 						System.out.println("[ERROR] [SYS] Input/Output error");
 						return "0";
 					}
@@ -294,7 +302,7 @@ class Client extends Thread {
 							return "4";
 						}
 					} catch (IOException e) {
-						e.printStackTrace();
+						//e.printStackTrace();
 						System.out.println("[ERROR] [SYS] Input/Output error");
 						return "0";
 					}
@@ -312,7 +320,7 @@ class Client extends Thread {
 		}
     }
     
-    public static String Reslove(String domain) {
+    public static String Resolve(String domain) {
     	String[] d = domain.split("\\.");
     	if (d.length == 2) {
     		boolean flag = false;
@@ -335,10 +343,16 @@ class Client extends Thread {
 							data = data + (char)c;
 						}
 						dfstream.close();
-						System.out.println("[INFO] [DNS] DNS request successfully processed");
-						return data;
+						for (int i = 0; i < Map.MapSize; i++) {
+							if (Map.IPMap[i][1].equals(data)) {
+								System.out.println("[INFO] [DNS] DNS request successfully processed");
+								return Map.IPMap[i][0];
+							}
+						}
+						System.out.println("[INFO] [DNS] DNS request not processed! Reason: Host is down");
+						return "5";
 					} catch (IOException e) {
-						e.printStackTrace();
+						//e.printStackTrace();
 						System.out.println("[ERROR] [SYS] Input/Output error");
 						return "0";
 					}
@@ -364,6 +378,7 @@ Error codes:
 2 - Domain already created/Domain not already created
 3 - Error create domain file
 4 - Access error to domain file
+5 - Host is down
  */
 
 class TCPServer {
@@ -374,62 +389,95 @@ class TCPServer {
 
 	{
 		System.out.println("DHCP/DNS Server for OpenComputers and other devices by Bit");
+		System.out.println("Contscts:");
+		System.out.println("-- ");
 		System.out.print("[INFO] Initializating...");
         Properties prop = new Properties();
         String IP = "0.0.0.0";
-        int port = 25566;
+        int port = 9999;
         int maxconnections = 200;
+        String[] domainlist = new String[] {"ru", "net", "server"};
         try {
         	File F = new File(PATH_TO_PROPERTIES);
 	        if (F.exists()) {
+	        	System.out.println("");
+	        	System.out.println("|-- [PROP] config.properties found!");
 	        	FileInputStream fileInputStream = new FileInputStream(F);
 	            prop.load(fileInputStream);
-	 
+	            
 	            IP = prop.getProperty("IP");
+	            System.out.println("|-- [PROP] Set server IP to "+IP);
 	            port = Integer.parseInt(prop.getProperty("port"));
+	            System.out.println("|-- [PROP] Set server port to "+port);
 	            maxconnections = Integer.parseInt(prop.getProperty("maxconnections"));
+	            System.out.println("|-- [PROP] Set server maxconnections to "+maxconnections);
+	            domainlist = prop.getProperty("domains").split(",");
+	            for (int i = 0; i < domainlist.length; i++) {
+	            	domainlist[i].replace(" ", "");
+	            }
 	            fileInputStream.close();
 	            prop = null;
         	} else {
+        		System.out.println("");
+        		System.out.println("|-- [PROP] config.properties not found!");
+        		System.out.println("|-- [PROP] Create config.properties and load default settings!");
         		FileWriter FW = new FileWriter(F);
         		FW.write("IP = "+IP+"\n");
         		FW.write("port = "+port+"\n");
-        		FW.write("maxconnections = "+maxconnections);
+        		FW.write("maxconnections = "+maxconnections+"\n");
+        		String str = "";
+        		for (int i = 0; i < domainlist.length; i++) {
+        			if (i < (domainlist.length - 1)) {
+        				str = str + domainlist[i] + ",";
+        			} else {
+        				str = str + domainlist[i];
+        			}
+        		}
+        		FW.write("domains = "+str);
         		FW.close();
         	}
         } catch (IOException e) {
-            System.out.println("[ERROR] [SYS] Ошибка в программе: файл " + PATH_TO_PROPERTIES + " не обнаружено");
-            e.printStackTrace();
+            //e.printStackTrace();
         }
-		Data Map = new Data();
+		Data Map = new Data(domainlist);
 		int n = 0, j = 0;
 		for (int i = 0; i < Map.MapSize; i++) {
 			Map.IPMap[i][0] = n + "." + j;
 			Map.IPMap[i][1] = "#";
-			Map.IPMap[i][2] = "#";
 			j++;
 			if (j == 256) {
 				j = 0;
 				n++;
 			}
 		}
-		System.out.println("OK");
-		System.out.println("[INFO] Checking DNS folder...");
+		System.out.println("|-- [PROP] OK");
+		System.out.println("[INFO] [DNS] Checking DNS folder...");
         File dir;
         dir = new File(dnsfolder);
         if (!dir.exists()) {
+        	System.out.println("|-- [DNS] DNS folder not found!");
+        	System.out.print("|-- [DNS] Create DNS folders...");
         	dir.mkdir();
+        	System.out.println("OK");
         }
         for (int i = 0; i < Map.domains.length; i++) {
 	        dir = new File(dnsfolder+"\\"+Map.domains[i]);
 	        if (!dir.exists()) {
 	        	dir.mkdir();
 	        }
-	        System.out.println("|--[Domain "+Map.domains[i]+" active]");
+	        System.out.println("|-- [DNS] [Domain '."+Map.domains[i]+"' active]");
         }
-        System.out.println("|--OK");
+        System.out.println("|-- [DNS] OK");
 		System.out.print("[INFO] Starting socket...");
-		ServerSocket welcomeSocket = new ServerSocket(port, maxconnections, InetAddress.getByName(IP));
+		ServerSocket welcomeSocket = null;
+		try {
+			welcomeSocket = new ServerSocket(port, maxconnections, InetAddress.getByName(IP));
+		} catch (SocketException c) {
+			//c.printStackTrace();
+			System.out.println("");
+			System.out.print("[FATAL ERROR] [SYS] Address already in use!");
+			System.exit(0);
+		}
 		System.out.println("OK");
 		System.out.println("[INFO] Socket started on external IP: "+welcomeSocket.getInetAddress());
 		System.out.println("[INFO] Wait connections...");
