@@ -1,6 +1,6 @@
 # OpenComputersDHCP-DNS
  - Server - Исходники проекта на Java (IDE Eclipse)  
- - DHCP-DNS-Server.jar - Скомпилированый файл проекта  
+ - DHCP-DNS-Server.jar - Скомпилированый файл проекта, находится в [Releases](https://github.com/TheConnBit/OpenComputersDHCP-DNS/releases)
  - ddns.lua - Библиотека для работы с сервером для OpenComputers  
 ## Server
  - Запуск сервера через консоль командой java -jar DHCP-DNS-Server.jar  
